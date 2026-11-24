@@ -228,18 +228,18 @@
       const qtyInput = parseDecimal(tier && tier.qty);
       let invalidReason = null;
       let risk = null;
-      if (!stopOk) {
-        invalidReason = "请先填写有效止损价";
-      } else if (price === null) {
-        invalidReason = tier && String(tier.price || "").trim() ? "开仓价不是有效数字" : "未填写开仓价";
+      if (price === null) {
+        invalidReason = tier && String(tier.price || "").trim() ? "开仓价不是有效数字" : "请填写开仓价";
       } else if (price <= 0n) {
         invalidReason = "开仓价需大于 0";
+      } else if (!stopOk) {
+        invalidReason = "请填写止损";
       } else {
         risk = direction === "long" ? price - stop : stop - price;
         if (risk <= 0n) {
           invalidReason = direction === "long"
-            ? "做多时开仓价需高于止损，本档已忽略"
-            : "做空时开仓价需低于止损，本档已忽略";
+            ? "多单每档开仓价须高于止损"
+            : "空单每档开仓价须低于止损";
           risk = null;
         }
       }
@@ -536,6 +536,13 @@
     return next;
   }
 
+  function clearTierPrices(state) {
+    const next = cloneState(state);
+    next.equalQty = true;
+    next.tiers = next.tiers.map((tier) => ({ id: tier.id, price: "", qty: "" }));
+    return next;
+  }
+
   function addTier(state) {
     const next = cloneState(state);
     if (next.tiers.length >= 50) return next;
@@ -588,6 +595,7 @@
     applyPriceEdit,
     applyQtyEdit,
     restoreEqual,
+    clearTierPrices,
     addTier,
     removeTier,
     generateEqualTiers,
