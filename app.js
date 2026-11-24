@@ -89,7 +89,9 @@
     const longOn = state.direction !== "short";
     $("dir-long").setAttribute("aria-pressed", longOn ? "true" : "false");
     $("dir-short").setAttribute("aria-pressed", longOn ? "false" : "true");
-    $("custom-fields").hidden = state.symbol !== "CUSTOM";
+    const custom = $("custom-fields");
+    const hideCustom = state.symbol !== "CUSTOM";
+    if (custom.hidden !== hideCustom) custom.hidden = hideCustom;
     paintCount();
   }
 
@@ -101,9 +103,10 @@
 
   function paintCount() {
     const count = String(state.tiers.length || 1);
-    $("tier-count-num").textContent = count;
+    const num = $("tier-count-num");
+    if (num.textContent !== count) num.textContent = count;
     const range = $("tier-count");
-    if (document.activeElement !== range) range.value = count;
+    if (document.activeElement !== range && range.value !== count) range.value = count;
   }
 
   function paintMessages(result) {
@@ -142,45 +145,131 @@
     $("step-info").textContent = stepFact();
   }
 
-  function tierNode(id) {
-    const node = document.createElement("article");
-    node.className = "tier";
-    node.dataset.id = id;
-    node.innerHTML = [
-      '<div class="tier-top"><span class="idx"></span><button type="button" class="x" data-remove="1" aria-label="删除档位">×</button></div>',
-      '<div class="field"><label>开仓价</label><div class="input"><input class="price" type="text" inputmode="decimal" autocomplete="off" aria-label="开仓价"><span class="unit">USDT</span></div></div>',
-      '<div class="field"><label>数量</label><div class="input"><input class="qty" type="text" inputmode="decimal" autocomplete="off" aria-label="数量"></div></div>',
-      '<div class="mini"><span>亏损<b class="loss">—</b></span><span>名义<b class="notional">—</b></span><span>保证金<b class="margin">—</b></span></div>',
-      '<p class="hint"></p>'
-    ].join("");
+  function textNode(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text) node.textContent = text;
     return node;
+  }
+
+  function decimalInput(className, id, label) {
+    const input = document.createElement("input");
+    input.className = className;
+    input.id = id;
+    input.type = "text";
+    input.inputMode = "decimal";
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.setAttribute("aria-label", label);
+    return input;
+  }
+
+  function slotNode(id) {
+    const node = textNode("label", "slot");
+    node.dataset.id = id;
+    node.appendChild(textNode("span", "k"));
+    node.appendChild(decimalInput("entry", "entry-" + id, "开仓价"));
+    node.appendChild(textNode("p", "hint"));
+    return node;
+  }
+
+  function fieldBlock(label, input, unit) {
+    const field = textNode("div", "field");
+    field.appendChild(textNode("label", "", label));
+    const wrap = textNode("div", "input");
+    wrap.appendChild(input);
+    if (unit) wrap.appendChild(textNode("span", "unit", unit));
+    field.appendChild(wrap);
+    return field;
+  }
+
+  function tierNode(id) {
+    const node = textNode("article", "tier");
+    node.dataset.id = id;
+    const top = textNode("div", "tier-top");
+    top.appendChild(textNode("span", "idx"));
+    const button = textNode("button", "x", "×");
+    button.type = "button";
+    button.dataset.remove = "1";
+    button.setAttribute("aria-label", "删除档位");
+    top.appendChild(button);
+    node.appendChild(top);
+    node.appendChild(fieldBlock("开仓价", decimalInput("price", "price-" + id, "开仓价"), "USDT"));
+    node.appendChild(fieldBlock("数量", decimalInput("qty", "qty-" + id, "数量")));
+    const mini = textNode("div", "mini");
+    [["亏损", "loss"], ["名义", "notional"], ["保证金", "margin"]].forEach((pair) => {
+      const span = textNode("span", "", pair[0]);
+      span.appendChild(textNode("b", pair[1], "—"));
+      mini.appendChild(span);
+    });
+    node.appendChild(mini);
+    node.appendChild(textNode("p", "hint"));
+    return node;
+  }
+
+  function dropStale(list, ids) {
+    Array.from(list.children).forEach((node) => {
+      if (!ids.has(node.dataset.id)) node.remove();
+    });
+  }
+
+  function mountMissing(list, id, build) {
+    const found = list.querySelector('[data-id="' + id + '"]');
+    if (found) return found;
+    const created = build(id);
+    list.appendChild(created);
+    return created;
+  }
+
+  function keepValue(input, value) {
+    if (document.activeElement === input) return;
+    if (input.value !== value) input.value = value;
+  }
+
+  function setText(node, text) {
+    if (node.textContent !== text) node.textContent = text;
+  }
+
+  function priceHint(row) {
+    const hint = rowHint(row);
+    return hint === "数量未对齐步长" ? "" : hint;
+  }
+
+  function paintSlots(result) {
+    const list = $("price-row");
+    const ids = new Set(state.tiers.map((tier) => tier.id));
+    dropStale(list, ids);
+    state.tiers.forEach((tier, index) => {
+      const node = mountMissing(list, tier.id, slotNode);
+      const row = result.rows[index];
+      const name = "档 " + (index + 1);
+      setText(node.querySelector(".k"), name);
+      const input = node.querySelector(".entry");
+      if (document.activeElement !== input && input.getAttribute("aria-label") !== name + " 开仓价") {
+        input.setAttribute("aria-label", name + " 开仓价");
+      }
+      keepValue(input, tier.price);
+      setText(node.querySelector(".hint"), priceHint(row));
+      node.classList.toggle("is-ignored", !!(row && row.invalidReason && String(tier.price || "").trim()));
+    });
   }
 
   function paintTiers(result) {
     const list = $("tier-list");
     const ids = new Set(state.tiers.map((tier) => tier.id));
-    list.querySelectorAll(".tier").forEach((node) => {
-      if (!ids.has(node.dataset.id)) node.remove();
-    });
+    dropStale(list, ids);
     state.tiers.forEach((tier, index) => {
-      let node = list.querySelector('.tier[data-id="' + tier.id + '"]');
-      if (!node) {
-        node = tierNode(tier.id);
-        list.appendChild(node);
-      }
-      list.appendChild(node);
+      const node = mountMissing(list, tier.id, tierNode);
       const row = result.rows[index];
-      node.querySelector(".idx").textContent = String(index + 1).padStart(2, "0");
-      const price = node.querySelector(".price");
-      const qty = node.querySelector(".qty");
-      if (document.activeElement !== price && price.value !== tier.price) price.value = tier.price;
+      setText(node.querySelector(".idx"), String(index + 1).padStart(2, "0"));
+      keepValue(node.querySelector(".price"), tier.price);
       const qtyShown = state.equalQty ? (row && !row.invalidReason ? row.qtyText : "") : tier.qty;
-      if (document.activeElement !== qty && qty.value !== qtyShown) qty.value = qtyShown;
+      keepValue(node.querySelector(".qty"), qtyShown);
       node.classList.toggle("is-ignored", !!(row && row.invalidReason && String(tier.price || "").trim()));
-      node.querySelector(".loss").textContent = row && row.lossText ? row.lossText : "—";
-      node.querySelector(".notional").textContent = row && row.notionalText ? row.notionalText : "—";
-      node.querySelector(".margin").textContent = row && row.marginText ? row.marginText : "—";
-      node.querySelector(".hint").textContent = rowHint(row);
+      setText(node.querySelector(".loss"), row && row.lossText ? row.lossText : "—");
+      setText(node.querySelector(".notional"), row && row.notionalText ? row.notionalText : "—");
+      setText(node.querySelector(".margin"), row && row.marginText ? row.marginText : "—");
+      setText(node.querySelector(".hint"), rowHint(row));
       node.querySelector(".x").disabled = state.tiers.length <= 1;
     });
   }
@@ -211,10 +300,13 @@
   function render() {
     setStatus();
     paintCount();
-    $("custom-fields").hidden = state.symbol !== "CUSTOM";
+    const custom = $("custom-fields");
+    const hideCustom = state.symbol !== "CUSTOM";
+    if (custom.hidden !== hideCustom) custom.hidden = hideCustom;
     const result = current();
     paintMessages(result);
     paintSummary(result);
+    paintSlots(result);
     paintTiers(result);
     paintPartials(result);
   }
@@ -309,15 +401,22 @@
       render();
     });
     $("ref-refresh").addEventListener("click", refreshRef);
-    $("tier-list").addEventListener("input", (event) => {
-      const node = event.target.closest(".tier");
+    function onTierInput(event) {
+      const node = event.target.closest("[data-id]");
       if (!node) return;
       const index = state.tiers.findIndex((tier) => tier.id === node.dataset.id);
       if (index < 0) return;
-      if (event.target.classList.contains("price")) state = C.applyPriceEdit(state, index, event.target.value);
-      if (event.target.classList.contains("qty")) state = C.applyQtyEdit(state, index, event.target.value);
+      if (event.target.classList.contains("entry") || event.target.classList.contains("price")) {
+        state = C.applyPriceEdit(state, index, event.target.value);
+      } else if (event.target.classList.contains("qty")) {
+        state = C.applyQtyEdit(state, index, event.target.value);
+      } else {
+        return;
+      }
       render();
-    });
+    }
+    $("price-row").addEventListener("input", onTierInput);
+    $("tier-list").addEventListener("input", onTierInput);
     $("tier-list").addEventListener("click", (event) => {
       const button = event.target.closest("[data-remove]");
       if (!button || button.disabled || state.tiers.length <= 1) return;
