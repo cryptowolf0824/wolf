@@ -2,140 +2,152 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>以额定损仓位计算器</title>
-  <meta name="description" content="以额定损仓位计算器">
-  <meta name="theme-color" content="#e7eef8" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#141a2b" media="(prefers-color-scheme: dark)">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2314386b'/%3E%3Cpath d='M8 20h16M16 8v8' stroke='%23d7f5e3' stroke-width='2'/%3E%3C/svg%3E">
+  <meta name="description" content="先定亏损，再算仓位。填额定亏、止损和各档开仓价，算出每档数量和保证金。">
+  <meta name="theme-color" content="#07080B">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2307080B'/%3E%3Crect x='8' y='8' width='48' height='48' rx='10' fill='none' stroke='%23FF2E4D' stroke-width='3'/%3E%3Cpath d='M20 32h24' stroke='%23F2F6FF' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='3.5' fill='%23FF2E4D'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main class="app">
-    <header class="bar">
-      <h1>以额定损仓位计算器</h1>
-      <div id="status-badge" class="status" data-mode="equal">等量</div>
+  <div class="wrap">
+    <header class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <rect x="6" y="6" width="52" height="52" rx="12" fill="none" stroke="#FF2E4D" stroke-width="3"/>
+          <path d="M20 32h24" stroke="#F2F6FF" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="32" cy="32" r="3.5" fill="#FF2E4D"/>
+        </svg>
+        <span class="wordmark">以额定损仓位计算器</span>
+      </div>
+      <span class="tag">定额亏损</span>
     </header>
+    <hr class="rule">
+
+    <section class="hero">
+      <p class="eyebrow">仓位 · 定额亏损</p>
+      <h1>先定亏损，再算仓位</h1>
+      <p class="lede">填好愿意亏多少 U、止损和各档开仓价，算出每档数量和保证金。只计算，不下单。</p>
+    </section>
 
     <div class="grid">
-      <section class="pane controls">
-        <div class="line">
-          <label class="field symbol grow">
-            <span class="k"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 5v3.2L10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>标的</span>
-            <select id="symbol" aria-label="标的"></select>
-          </label>
-          <label class="field dir" data-side="long">
-            <span class="k">方向</span>
-            <select id="direction" aria-label="方向">
-              <option value="long">多</option>
-              <option value="short">空</option>
-            </select>
-          </label>
-          <div class="fact"><span>步长</span><b id="step-info">—</b></div>
-          <div id="ref-box" class="fact" data-status="loading">
-            <span>参考</span>
-            <b id="ref-price">—</b>
-            <i id="ref-tag"></i>
-            <button type="button" id="ref-refresh" class="icon-btn" aria-label="刷新参考价">
-              <svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M12 2.5V5h-2.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
+      <div class="col">
+        <section class="panel">
+          <p class="panel-title"><span>合约</span><span>输入</span></p>
+          <div class="field">
+            <label for="symbol">标的<small id="step-info">步长 —</small></label>
+            <div class="input"><select id="symbol" aria-label="标的"></select></div>
+          </div>
+          <div id="custom-fields" hidden>
+            <div class="field">
+              <label for="custom-symbol">合约</label>
+              <div class="input"><input id="custom-symbol" type="text" autocomplete="off" spellcheck="false" placeholder="SOL"></div>
+            </div>
+            <div class="field">
+              <label for="custom-step">数量步长</label>
+              <div class="input"><input id="custom-step" type="text" inputmode="decimal" autocomplete="off" placeholder="0.01"></div>
+            </div>
+          </div>
+          <div class="field">
+            <label>方向</label>
+            <div class="pills" role="group" aria-label="方向">
+              <button type="button" id="dir-long" class="pill long" data-direction="long" aria-pressed="true">多</button>
+              <button type="button" id="dir-short" class="pill short" data-direction="short" aria-pressed="false">空</button>
+            </div>
+          </div>
+          <div class="row" id="ref-box" data-status="loading">
+            <span class="k">参考最新价</span>
+            <span class="v"><b id="ref-price">—</b> <i id="ref-tag"></i></span>
+            <button type="button" id="ref-refresh" class="reset">刷新</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <p class="panel-title"><span>风控</span><span>输入</span></p>
+          <div class="field">
+            <label for="stop-loss">止损<small>触发价</small></label>
+            <div class="input"><input id="stop-loss" type="text" inputmode="decimal" autocomplete="off"><span class="unit">USDT</span></div>
+          </div>
+          <div class="field key">
+            <label for="loss-cap">额定亏<small>愿意亏的金额</small></label>
+            <div class="input"><input id="loss-cap" type="text" inputmode="decimal" autocomplete="off"><span class="unit">U</span></div>
+          </div>
+          <div class="field">
+            <label for="leverage">杠杆<small>只影响保证金</small></label>
+            <div class="input">
+              <select id="leverage" class="with-unit" aria-label="杠杆">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="5">5</option>
+                <option value="8">8</option>
+                <option value="10" selected>10</option>
+                <option value="15">15</option>
+                <option value="20">20</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="75">75</option>
+                <option value="100">100</option>
+              </select>
+              <span class="unit">×</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <p class="panel-title"><span>分档</span><span id="status-badge" data-mode="equal">等量</span></p>
+          <div class="field slider-field">
+            <label for="tier-count">档数 <b id="tier-count-num">3</b></label>
+            <input id="tier-count" type="range" min="1" max="12" step="1" value="3" aria-label="档数">
+          </div>
+          <div id="tier-list" class="tier-list"></div>
+          <button type="button" id="restore-equal" class="restore">恢复等量</button>
+          <div id="message-list" class="warns"></div>
+        </section>
+      </div>
+
+      <div class="col">
+        <div class="headline" aria-live="polite">
+          <div>
+            <div class="label">总数量</div>
+            <div class="big" id="total-qty" data-field="total-qty">0</div>
+            <div class="sub" id="loss-sub">全部成交亏损 —</div>
           </div>
         </div>
 
-        <div id="custom-fields" class="line" hidden>
-          <label class="field symbol grow"><span class="k">合约</span><input id="custom-symbol" type="text" autocomplete="off" spellcheck="false" placeholder="SOL"></label>
-          <label class="field count"><span class="k">步长</span><input id="custom-step" type="text" inputmode="decimal" autocomplete="off" placeholder="0.01"></label>
-        </div>
+        <section class="panel">
+          <p class="panel-title"><span>结果</span><span>输出</span></p>
+          <div class="tiles">
+            <div class="tile"><span class="k">均价</span><span class="v" id="avg-price" data-field="avg-price">—</span></div>
+            <div class="tile"><span class="k">保证金</span><span class="v" id="total-margin" data-field="total-margin">—</span></div>
+            <div class="tile"><span class="k">亏损</span><span class="v bad" id="total-loss" data-field="total-loss">—</span></div>
+            <div class="tile"><span class="k">名义</span><span class="v" id="total-notional" data-field="total-notional">—</span></div>
+          </div>
+          <p class="exact" id="margin-exact" data-field="margin-exact"></p>
+        </section>
 
-        <div class="line">
-          <label class="field stop">
-            <span class="k"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 11h10M8 11V5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>止损</span>
-            <input id="stop-loss" type="text" inputmode="decimal" autocomplete="off">
-          </label>
-          <label class="field cap">
-            <span class="k"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 8h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>额定亏</span>
-            <input id="loss-cap" type="text" inputmode="decimal" autocomplete="off">
-          </label>
-          <label class="field lev">
-            <span class="k"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12V8M8 12V5M12 12V3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>杠杆</span>
-            <select id="leverage" aria-label="杠杆">
-              <option value="1">1x</option>
-              <option value="2">2x</option>
-              <option value="3">3x</option>
-              <option value="5">5x</option>
-              <option value="8">8x</option>
-              <option value="10">10x</option>
-              <option value="15">15x</option>
-              <option value="20">20x</option>
-              <option value="25">25x</option>
-              <option value="50">50x</option>
-              <option value="75">75x</option>
-              <option value="100">100x</option>
-            </select>
-          </label>
-        </div>
-
-        <div class="line">
-          <label class="field count grow">
-            <span class="k">档数 <b id="tier-count-num">3</b></span>
-            <input id="tier-count" type="range" min="1" max="12" step="1" value="3" aria-label="档数">
-          </label>
-          <button type="button" id="load-300" class="chip chip-cap">300U</button>
-          <button type="button" id="load-500" class="chip chip-symbol">500U</button>
-        </div>
-        <div id="message-list" class="warns"></div>
-      </section>
-
-      <section class="pane tiles" aria-label="汇总">
-        <article class="tile t-qty"><span>总数量</span><b id="total-qty" data-field="total-qty">—</b></article>
-        <article class="tile avg"><span>均价</span><b id="avg-price" data-field="avg-price">—</b></article>
-        <article class="tile loss"><span>亏损</span><b id="total-loss" data-field="total-loss">—</b></article>
-        <article class="tile margin"><span>保证金</span><b id="total-margin" data-field="total-margin">—</b><small id="margin-exact" data-field="margin-exact"></small></article>
-      </section>
-
-      <section class="pane tiers">
-        <div class="pane-h">
-          <h2>分档</h2>
-          <button type="button" id="restore-equal" class="btn">恢复等量</button>
-        </div>
-        <div class="scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>价</th>
-                <th>量</th>
-                <th>亏损</th>
-                <th>名义</th>
-                <th>保证金</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="tier-body"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="pane partial">
-        <div class="pane-h">
-          <h2>分批</h2>
-          <span id="fill-dir" class="pill">高→低</span>
-        </div>
-        <div class="scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>价</th>
-                <th>累计亏</th>
-                <th>剩余</th>
-              </tr>
-            </thead>
-            <tbody id="partial-body"></tbody>
-          </table>
-        </div>
-      </section>
+        <section class="panel">
+          <p class="panel-title"><span>分批</span><span id="fill-dir">高→低</span></p>
+          <div class="scroll">
+            <table>
+              <thead>
+                <tr><th>#</th><th>价</th><th>累计亏</th><th>剩余</th></tr>
+              </thead>
+              <tbody id="partial-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </div>
-  </main>
+
+    <footer>
+      <span>手续费不计入额定亏损</span>
+      <span>只计算 · 不下单</span>
+    </footer>
+  </div>
   <script src="calc.js"></script>
   <script src="app.js"></script>
 </body>

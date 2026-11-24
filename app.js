@@ -1,10 +1,36 @@
 (function () {
   const C = window.PositionCalc;
-  let state = C.loadSample("cap300");
+  let state = initialState();
   let refSeq = 0;
   let customTimer = 0;
+  let priceSymbolKey = symbolKey();
 
   const $ = (id) => document.getElementById(id);
+
+  function initialState() {
+    let next = {
+      symbol: "HYPE",
+      customSymbol: "",
+      customStep: "",
+      direction: "long",
+      stopLoss: "",
+      lossCap: "",
+      leverage: "10",
+      equalQty: true,
+      tiers: [],
+    };
+    next = C.addTier(next);
+    next = C.addTier(next);
+    next = C.addTier(next);
+    return next;
+  }
+
+  function symbolKey() {
+    if (state.symbol === "CUSTOM") {
+      return "CUSTOM:" + String(state.customSymbol || "").trim().toUpperCase();
+    }
+    return state.symbol;
+  }
 
   function step() {
     return C.resolveStep(state);
@@ -28,28 +54,23 @@
     select.appendChild(custom);
   }
 
-  function shortMessage(msg) {
-    if (msg.startsWith("请填写大于 0 的止损")) return "止损需 > 0";
-    if (msg.startsWith("请填写大于 0 的额定")) return "额定亏需 > 0";
-    if (msg.startsWith("数量步长")) return "步长需 > 0";
-    if (msg.startsWith("请填写大于 0 的杠杆")) return "杠杆需 > 0";
-    if (msg.startsWith("没有有效档位")) return "无有效档";
-    if (msg.startsWith("即使只下一个")) return "一步即超限，数量为 0";
-    if (msg.startsWith("就近取整会超过")) return "已向下取整";
-    if (msg.startsWith("有档位数量不是")) return "数量未对齐步长";
-    return "";
+  function adoptSymbolChange() {
+    const key = symbolKey();
+    if (key === priceSymbolKey) return;
+    state = C.clearTierPrices(state);
+    priceSymbolKey = key;
   }
 
-  function rowTag(row) {
+  function rowHint(row) {
     if (!row) return "";
-    if (row.invalidReason) {
-      if (row.invalidReason.indexOf("高于止损") >= 0 || row.invalidReason.indexOf("低于止损") >= 0) return "忽略";
-      if (row.invalidReason.indexOf("未填写") >= 0) return "";
-      return "无效";
-    }
-    if (row.qtyWarning && row.qtyWarning.indexOf("步长") >= 0) return "步长";
-    if (row.qtyWarning) return "无效";
-    return "";
+    const reason = row.invalidReason || "";
+    if (!reason) return row.offStep ? "数量未对齐步长" : "";
+    if (reason.indexOf("开仓价") >= 0 && reason.indexOf("止损") < 0) return reason.indexOf("数字") >= 0 ? "开仓价无效" : "请填写开仓价";
+    if (reason.indexOf("高于止损") >= 0) return "多单每档开仓价须高于止损";
+    if (reason.indexOf("低于止损") >= 0) return "空单每档开仓价须低于止损";
+    if (reason.indexOf("止损") >= 0) return "请填写止损";
+    if (reason.indexOf("大于 0") >= 0) return "开仓价需大于 0";
+    return reason;
   }
 
   function setStatus() {
@@ -65,23 +86,38 @@
     $("stop-loss").value = state.stopLoss;
     $("loss-cap").value = state.lossCap;
     $("leverage").value = state.leverage;
-    $("direction").value = state.direction === "short" ? "short" : "long";
+    const longOn = state.direction !== "short";
+    $("dir-long").setAttribute("aria-pressed", longOn ? "true" : "false");
+    $("dir-short").setAttribute("aria-pressed", longOn ? "false" : "true");
     $("custom-fields").hidden = state.symbol !== "CUSTOM";
-    paintChrome();
+    paintCount();
   }
 
   function stepFact() {
     const parsed = C.parseDecimal(step());
-    if (parsed === null || parsed <= 0n) return "—";
-    return C.formatTrim(parsed);
+    if (parsed === null || parsed <= 0n) return "步长 —";
+    return "步长 " + C.formatTrim(parsed);
+  }
+
+  function paintCount() {
+    const count = String(state.tiers.length || 1);
+    $("tier-count-num").textContent = count;
+    const range = $("tier-count");
+    if (document.activeElement !== range) range.value = count;
   }
 
   function paintMessages(result) {
     const box = $("message-list");
     box.replaceChildren();
-    result.errors.concat(result.warnings, result.notes).forEach((msg) => {
-      const text = shortMessage(msg);
-      if (!text) return;
+    const anyPrice = state.tiers.some((tier) => String(tier.price || "").trim());
+    const texts = [];
+    if (anyPrice && result.errors.some((msg) => msg.indexOf("止损价") >= 0)) texts.push("请填写止损");
+    if (anyPrice && result.errors.some((msg) => msg.indexOf("额定亏损") >= 0)) texts.push("请填写额定亏");
+    if (result.errors.some((msg) => msg.indexOf("步长") >= 0)) texts.push("步长需 > 0");
+    if (result.warnings.some((msg) => msg.indexOf("数量已记为 0") >= 0)) texts.push("一步即超限，数量为 0");
+    if (result.fitMode === "floor") texts.push("已向下取整");
+    if (result.warnings.some((msg) => msg.indexOf("整数倍") >= 0)) texts.push("数量未对齐步长");
+    texts.forEach((text) => {
       const chip = document.createElement("span");
       chip.className = "chip-warn";
       chip.textContent = text;
@@ -90,55 +126,62 @@
   }
 
   function paintSummary(result) {
-    $("total-qty").textContent = result.totalQtyText || "—";
+    const qty = result.totalQtyText && result.totalQtyText !== "0" ? result.totalQtyText : "0";
+    $("total-qty").textContent = qty;
     $("avg-price").textContent = result.avgPriceText || "—";
-    $("total-loss").textContent = result.totalLossText || "—";
+    $("total-loss").textContent = result.totalLossText && result.totalLossText !== "0" ? result.totalLossText : "—";
     $("total-margin").textContent = result.totalMarginFixed2 || "—";
+    $("total-notional").textContent = result.totalNotionalText && result.totalNotionalText !== "0" ? result.totalNotionalText : "—";
     const exact = $("margin-exact");
     exact.textContent = result.totalMarginText && result.totalMarginText !== result.totalMarginFixed2
       ? result.totalMarginText
       : "";
+    const loss = result.totalLossText && result.totalLossText !== "0" ? result.totalLossText + " U" : "—";
+    $("loss-sub").textContent = "全部成交亏损 " + loss;
     $("fill-dir").textContent = state.direction === "long" ? "高→低" : "低→高";
+    $("step-info").textContent = stepFact();
   }
 
-  function rowTemplate() {
-    const tr = document.createElement("tr");
-    tr.innerHTML = [
-      '<td><input class="price cell-in" type="text" inputmode="decimal" autocomplete="off" aria-label="价"></td>',
-      '<td><input class="qty cell-in" type="text" inputmode="decimal" autocomplete="off" aria-label="量"></td>',
-      '<td class="loss"></td>',
-      '<td class="notional"></td>',
-      '<td class="margin"></td>',
-      '<td><span class="tag"></span><button type="button" class="x" data-remove="1" aria-label="删除档位">×</button></td>'
+  function tierNode(id) {
+    const node = document.createElement("article");
+    node.className = "tier";
+    node.dataset.id = id;
+    node.innerHTML = [
+      '<div class="tier-top"><span class="idx"></span><button type="button" class="x" data-remove="1" aria-label="删除档位">×</button></div>',
+      '<div class="field"><label>开仓价</label><div class="input"><input class="price" type="text" inputmode="decimal" autocomplete="off" aria-label="开仓价"><span class="unit">USDT</span></div></div>',
+      '<div class="field"><label>数量</label><div class="input"><input class="qty" type="text" inputmode="decimal" autocomplete="off" aria-label="数量"></div></div>',
+      '<div class="mini"><span>亏损<b class="loss">—</b></span><span>名义<b class="notional">—</b></span><span>保证金<b class="margin">—</b></span></div>',
+      '<p class="hint"></p>'
     ].join("");
-    return tr;
+    return node;
   }
 
   function paintTiers(result) {
-    const body = $("tier-body");
+    const list = $("tier-list");
     const ids = new Set(state.tiers.map((tier) => tier.id));
-    body.querySelectorAll("tr").forEach((tr) => {
-      if (!ids.has(tr.dataset.id)) tr.remove();
+    list.querySelectorAll(".tier").forEach((node) => {
+      if (!ids.has(node.dataset.id)) node.remove();
     });
     state.tiers.forEach((tier, index) => {
-      let tr = body.querySelector('tr[data-id="' + tier.id + '"]');
-      if (!tr) {
-        tr = rowTemplate();
-        tr.dataset.id = tier.id;
+      let node = list.querySelector('.tier[data-id="' + tier.id + '"]');
+      if (!node) {
+        node = tierNode(tier.id);
+        list.appendChild(node);
       }
-      body.appendChild(tr);
+      list.appendChild(node);
       const row = result.rows[index];
-      const price = tr.querySelector(".price");
-      const qty = tr.querySelector(".qty");
+      node.querySelector(".idx").textContent = String(index + 1).padStart(2, "0");
+      const price = node.querySelector(".price");
+      const qty = node.querySelector(".qty");
       if (document.activeElement !== price && price.value !== tier.price) price.value = tier.price;
       const qtyShown = state.equalQty ? (row && !row.invalidReason ? row.qtyText : "") : tier.qty;
       if (document.activeElement !== qty && qty.value !== qtyShown) qty.value = qtyShown;
-      tr.classList.toggle("is-ignored", !!(row && row.invalidReason));
-      tr.querySelector(".loss").textContent = row && row.lossText ? row.lossText : "—";
-      tr.querySelector(".notional").textContent = row && row.notionalText ? row.notionalText : "—";
-      tr.querySelector(".margin").textContent = row && row.marginText ? row.marginText : "—";
-      tr.querySelector(".tag").textContent = rowTag(row);
-      tr.querySelector(".x").disabled = state.tiers.length <= 1;
+      node.classList.toggle("is-ignored", !!(row && row.invalidReason && String(tier.price || "").trim()));
+      node.querySelector(".loss").textContent = row && row.lossText ? row.lossText : "—";
+      node.querySelector(".notional").textContent = row && row.notionalText ? row.notionalText : "—";
+      node.querySelector(".margin").textContent = row && row.marginText ? row.marginText : "—";
+      node.querySelector(".hint").textContent = rowHint(row);
+      node.querySelector(".x").disabled = state.tiers.length <= 1;
     });
   }
 
@@ -147,7 +190,10 @@
     body.replaceChildren();
     if (!result.partials.length) {
       const tr = document.createElement("tr");
-      tr.innerHTML = '<td colspan="4">—</td>';
+      const td = document.createElement("td");
+      td.colSpan = 4;
+      td.textContent = "—";
+      tr.appendChild(td);
       body.appendChild(tr);
       return;
     }
@@ -162,13 +208,15 @@
     });
   }
 
-  function paintChrome() {
-    const side = state.direction === "short" ? "short" : "long";
-    $("direction").closest(".field").dataset.side = side;
-    const count = String(state.tiers.length);
-    $("tier-count-num").textContent = count;
-    const range = $("tier-count");
-    if (document.activeElement !== range) range.value = count;
+  function render() {
+    setStatus();
+    paintCount();
+    $("custom-fields").hidden = state.symbol !== "CUSTOM";
+    const result = current();
+    paintMessages(result);
+    paintSummary(result);
+    paintTiers(result);
+    paintPartials(result);
   }
 
   function setTierCount(target) {
@@ -178,26 +226,6 @@
     while (next.tiers.length > count) next = C.removeTier(next, next.tiers.length - 1);
     state = next;
     render();
-  }
-
-  function render() {
-    setStatus();
-    paintChrome();
-    $("step-info").textContent = stepFact();
-    $("custom-fields").hidden = state.symbol !== "CUSTOM";
-    const result = current();
-    paintMessages(result);
-    paintSummary(result);
-    paintTiers(result);
-    paintPartials(result);
-  }
-
-  function applyLoaded(next) {
-    const previous = C.resolveProduct(state);
-    state = next;
-    syncControls();
-    render();
-    if (C.resolveProduct(state) !== previous) refreshRef();
   }
 
   function setRef(price, tag, status) {
@@ -235,6 +263,8 @@
   function bind() {
     $("symbol").addEventListener("change", () => {
       state.symbol = $("symbol").value;
+      adoptSymbolChange();
+      syncControls();
       render();
       refreshRef();
     });
@@ -243,49 +273,56 @@
       clearTimeout(customTimer);
       customTimer = setTimeout(refreshRef, 400);
     });
+    $("custom-symbol").addEventListener("change", () => {
+      state.customSymbol = $("custom-symbol").value;
+      adoptSymbolChange();
+      render();
+      refreshRef();
+    });
     $("custom-step").addEventListener("input", () => {
       state.customStep = $("custom-step").value;
       render();
     });
-    ["stop-loss", "loss-cap"].forEach((id) => {
-      const key = id === "stop-loss" ? "stopLoss" : "lossCap";
-      $(id).addEventListener("input", () => {
-        state[key] = $(id).value;
-        render();
-      });
+    $("stop-loss").addEventListener("input", () => {
+      state.stopLoss = $("stop-loss").value;
+      render();
+    });
+    $("loss-cap").addEventListener("input", () => {
+      state.lossCap = $("loss-cap").value;
+      render();
     });
     $("leverage").addEventListener("change", () => {
       state.leverage = $("leverage").value;
       render();
     });
-    $("direction").addEventListener("change", () => {
-      state.direction = $("direction").value === "short" ? "short" : "long";
-      render();
+    document.querySelectorAll("[data-direction]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.direction = button.dataset.direction === "short" ? "short" : "long";
+        $("dir-long").setAttribute("aria-pressed", state.direction === "long" ? "true" : "false");
+        $("dir-short").setAttribute("aria-pressed", state.direction === "short" ? "true" : "false");
+        render();
+      });
     });
-    $("tier-count").addEventListener("input", () => {
-      setTierCount(Number($("tier-count").value));
-    });
-    $("load-300").addEventListener("click", () => applyLoaded(C.loadSample("cap300")));
-    $("load-500").addEventListener("click", () => applyLoaded(C.loadSample("cap500")));
+    $("tier-count").addEventListener("input", () => setTierCount(Number($("tier-count").value)));
     $("restore-equal").addEventListener("click", () => {
       state = C.restoreEqual(state);
       render();
     });
     $("ref-refresh").addEventListener("click", refreshRef);
-    $("tier-body").addEventListener("input", (event) => {
-      const tr = event.target.closest("tr");
-      if (!tr) return;
-      const index = state.tiers.findIndex((tier) => tier.id === tr.dataset.id);
+    $("tier-list").addEventListener("input", (event) => {
+      const node = event.target.closest(".tier");
+      if (!node) return;
+      const index = state.tiers.findIndex((tier) => tier.id === node.dataset.id);
       if (index < 0) return;
       if (event.target.classList.contains("price")) state = C.applyPriceEdit(state, index, event.target.value);
       if (event.target.classList.contains("qty")) state = C.applyQtyEdit(state, index, event.target.value);
       render();
     });
-    $("tier-body").addEventListener("click", (event) => {
+    $("tier-list").addEventListener("click", (event) => {
       const button = event.target.closest("[data-remove]");
       if (!button || button.disabled || state.tiers.length <= 1) return;
-      const tr = button.closest("tr");
-      const index = state.tiers.findIndex((tier) => tier.id === tr.dataset.id);
+      const node = button.closest(".tier");
+      const index = state.tiers.findIndex((tier) => tier.id === node.dataset.id);
       if (index < 0) return;
       state = C.removeTier(state, index);
       render();
