@@ -112,13 +112,18 @@
       </div>
 
       <div class="col">
-        <div class="headline" aria-live="polite">
-          <div>
+        <div class="headline">
+          <div class="headline-main" aria-live="polite">
             <div class="label">总数量</div>
             <div class="big" id="total-qty" data-field="total-qty">0</div>
             <div class="sub" id="loss-sub">全部成交亏损 —</div>
           </div>
+          <div class="plan-actions">
+            <button type="button" id="copy-plan" class="restore">复制开仓计划</button>
+            <p id="copy-feedback" class="copy-feedback" aria-live="polite"></p>
+          </div>
         </div>
+        <textarea id="copy-fallback" class="copy-fallback" readonly hidden aria-label="开仓计划文本"></textarea>
 
         <section class="panel">
           <p class="panel-title"><span>结果</span><span>输出</span></p>
