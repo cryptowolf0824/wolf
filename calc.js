@@ -575,6 +575,124 @@
     return Object.prototype.hasOwnProperty.call(SNAPSHOT.prices, symbol) ? SNAPSHOT.prices[symbol] : "";
   }
 
+  function contractName(state) {
+    if (!state || !state.symbol) return "";
+    if (state.symbol === "CUSTOM") return String(state.customSymbol || "").trim();
+    const found = SYMBOLS.find((item) => item.id === state.symbol);
+    return found ? found.product : "";
+  }
+
+  function qtyUnit(state) {
+    if (!state || !state.symbol) return "";
+    if (state.symbol === "CUSTOM") return String(state.customSymbol || "").trim();
+    const found = SYMBOLS.find((item) => item.id === state.symbol);
+    return found ? found.id : "";
+  }
+
+  function planBlockKind(state, result) {
+    const contract = contractName(state);
+    const step = parseDecimal(resolveStep(state));
+    if (!contract || step === null || step <= 0n) return "symbol";
+    const directionOk = state.direction === "long" || state.direction === "short";
+    const tiers = Array.isArray(state.tiers) ? state.tiers : [];
+    const pricesOk = tiers.length > 0
+      && result.rows.length === tiers.length
+      && result.rows.every((row) => !row.invalidReason);
+    const stopOrCapError = result.errors.some((msg) => msg.includes("止损") || msg.includes("额定亏损"));
+    if (!directionOk || !pricesOk || stopOrCapError) return "inputs";
+    if (result.errors.some((msg) => msg.includes("杠杆"))) return "leverage";
+    if (result.errors.length) return "result";
+    const rowsOk = result.rows.every((row) => row.included
+      && row.qtyScaled > 0n
+      && row.priceText
+      && row.qtyText
+      && row.marginText
+      && row.riskText
+      && row.lossText
+      && row.notionalText);
+    const totalsOk = result.totalQtyText && result.totalQtyText !== "0"
+      && result.totalLossText && result.totalLossText !== "0"
+      && result.totalMarginText
+      && result.totalMarginFixed2
+      && result.avgPriceText
+      && result.totalNotionalText && result.totalNotionalText !== "0"
+      && result.partials.length === tiers.length;
+    if (!rowsOk || !totalsOk) return "result";
+    return "";
+  }
+
+  function planBlockReason(kind) {
+    if (kind === "symbol") return "请先填写合约和数量步长";
+    if (kind === "leverage") return "请先填写有效杠杆";
+    if (kind === "inputs") return "请先填好止损、额定亏和每一档开仓价";
+    return "当前结果无法生成完整开仓计划";
+  }
+
+  function refPriceLine(refPrice, refTag) {
+    const raw = String(refPrice == null ? "" : refPrice).trim();
+    const parsed = parseDecimal(raw);
+    if (!raw || raw === "—" || raw === "…" || parsed === null || parsed <= 0n) return "参考最新价：未填";
+    const tag = refTag === "实时" || refTag === "快照" ? "（" + refTag + "）" : "";
+    return "参考最新价：" + formatTrim(parsed) + tag;
+  }
+
+  function renderPlan(state, result) {
+    const direction = state.direction === "short" ? "short" : "long";
+    const unit = qtyUnit(state);
+    const lines = [
+      "【开仓计划】以额定损",
+      "合约：" + contractName(state),
+      "方向：" + (direction === "short" ? "空" : "多"),
+      "开仓方式：限价分档",
+      "数量步长：" + formatTrim(parseDecimal(resolveStep(state))),
+      "数量模式：" + (state.equalQty !== false ? "等量" : "手填"),
+      refPriceLine(state.refPrice, state.refTag),
+      "止损触发价：" + formatTrim(parseDecimal(state.stopLoss)),
+      "额定亏：" + formatTrim(parseDecimal(state.lossCap)) + " U",
+      "杠杆：" + formatTrim(parseDecimal(state.leverage)) + "×",
+      "止盈价：无",
+      "盈亏比：无",
+      "合约面值：无",
+      "账户权益：无",
+      "风险比例：无",
+      "档数：" + String(result.rows.length),
+    ];
+    result.rows.forEach((row, index) => {
+      lines.push(
+        "档" + (index + 1) + "：限价 " + row.priceText
+        + "，数量 " + row.qtyText + " " + unit
+        + "，保证金 " + row.marginText + " U"
+        + "，风险 " + row.riskText
+        + "，亏损 " + row.lossText + " U"
+        + "，名义 " + row.notionalText + " U"
+      );
+    });
+    lines.push(
+      "总数量：" + result.totalQtyText + " " + unit,
+      "全部成交亏损：" + result.totalLossText + " U",
+      "均价：" + result.avgPriceText,
+      "总保证金：" + result.totalMarginFixed2 + " U",
+      "保证金精确：" + result.totalMarginText + " U",
+      "总亏损：" + result.totalLossText + " U",
+      "总名义：" + result.totalNotionalText + " U",
+      "分批成交：" + (direction === "short" ? "低→高" : "高→低")
+    );
+    result.partials.forEach((item) => {
+      lines.push(item.order + " 价 " + item.priceText + " 累计亏 " + item.cumLossText + " 剩余 " + item.remaining);
+    });
+    if (result.rows.some((row) => row.offStep)) lines.push("注意：有档位数量不是步长的整数倍");
+    lines.push("手续费不计入额定亏损", "只计算 · 不下单");
+    return lines.join("\n");
+  }
+
+  function buildOpenPlan(input) {
+    const state = input || {};
+    const result = compute(stateToInput(state, resolveStep(state)));
+    const kind = planBlockKind(state, result);
+    if (kind) return { ok: false, reason: planBlockReason(kind) };
+    return { ok: true, text: renderPlan(state, result) };
+  }
+
   return {
     SCALE,
     SYMBOLS,
@@ -600,5 +718,6 @@
     removeTier,
     generateEqualTiers,
     snapshotPrice,
+    buildOpenPlan,
   };
 });

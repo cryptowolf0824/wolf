@@ -297,7 +297,64 @@
     });
   }
 
+  function clearCopyStatus() {
+    const feedback = $("copy-feedback");
+    if (feedback.textContent) feedback.textContent = "";
+    feedback.classList.remove("is-warn");
+    const fallback = $("copy-fallback");
+    if (!fallback.hidden || fallback.value) {
+      fallback.hidden = true;
+      fallback.value = "";
+    }
+  }
+
+  function showCopyFeedback(text, blocked) {
+    const node = $("copy-feedback");
+    node.textContent = text;
+    node.classList.toggle("is-warn", !!blocked);
+  }
+
+  function planPayload() {
+    return {
+      symbol: state.symbol,
+      customSymbol: state.customSymbol,
+      customStep: state.customStep,
+      direction: state.direction,
+      stopLoss: state.stopLoss,
+      lossCap: state.lossCap,
+      leverage: state.leverage,
+      equalQty: state.equalQty,
+      tiers: state.tiers.map((tier) => ({ price: tier.price, qty: tier.qty })),
+      refPrice: $("ref-price").textContent.trim(),
+      refTag: $("ref-tag").textContent.trim(),
+    };
+  }
+
+  async function copyPlan() {
+    const built = C.buildOpenPlan(planPayload());
+    if (!built.ok) {
+      clearCopyStatus();
+      showCopyFeedback(built.reason, true);
+      return;
+    }
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("clipboard");
+      await navigator.clipboard.writeText(built.text);
+      clearCopyStatus();
+      showCopyFeedback("已复制", false);
+    } catch (err) {
+      const box = $("copy-fallback");
+      box.hidden = false;
+      box.value = built.text;
+      box.focus();
+      box.select();
+      box.scrollTop = 0;
+      showCopyFeedback("请手动复制", true);
+    }
+  }
+
   function render() {
+    clearCopyStatus();
     setStatus();
     paintCount();
     const custom = $("custom-fields");
@@ -401,6 +458,9 @@
       render();
     });
     $("ref-refresh").addEventListener("click", refreshRef);
+    $("copy-plan").addEventListener("click", () => {
+      copyPlan();
+    });
     function onTierInput(event) {
       const node = event.target.closest("[data-id]");
       if (!node) return;
