@@ -582,13 +582,6 @@
     return found ? found.product : "";
   }
 
-  function qtyUnit(state) {
-    if (!state || !state.symbol) return "";
-    if (state.symbol === "CUSTOM") return String(state.customSymbol || "").trim();
-    const found = SYMBOLS.find((item) => item.id === state.symbol);
-    return found ? found.id : "";
-  }
-
   function planBlockKind(state, result) {
     const contract = contractName(state);
     const step = parseDecimal(resolveStep(state));
@@ -628,60 +621,67 @@
     return "当前结果无法生成完整开仓计划";
   }
 
-  function refPriceLine(refPrice, refTag) {
-    const raw = String(refPrice == null ? "" : refPrice).trim();
+  function chineseOrdinal(n) {
+    const digits = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+    const value = Number(n);
+    if (!Number.isInteger(value) || value <= 0) return String(n);
+    if (value < 10) return digits[value];
+    if (value === 10) return "十";
+    if (value < 20) return "十" + digits[value - 10];
+    if (value < 100) {
+      const tens = Math.floor(value / 10);
+      const ones = value % 10;
+      return digits[tens] + "十" + (ones ? digits[ones] : "");
+    }
+    return String(value);
+  }
+
+  function fillCountPhrase(n) {
+    if (n === 2) return "两";
+    return chineseOrdinal(n);
+  }
+
+  function enteredPrice(raw) {
     const parsed = parseDecimal(raw);
-    if (!raw || raw === "—" || raw === "…" || parsed === null || parsed <= 0n) return "参考最新价：未填";
-    const tag = refTag === "实时" || refTag === "快照" ? "（" + refTag + "）" : "";
-    return "参考最新价：" + formatTrim(parsed) + tag;
+    if (parsed === null || parsed <= 0n) return "无";
+    return formatTrim(parsed);
+  }
+
+  function copiedLoss(text) {
+    const parsed = parseDecimal(text);
+    if (parsed === null) return String(text == null ? "" : text);
+    return formatScaled(parsed, { dp: 8, trim: true });
+  }
+
+  function copiedAvg(text) {
+    const parsed = parseDecimal(text);
+    if (parsed === null) return String(text == null ? "" : text);
+    return formatFixed(parsed, 2);
   }
 
   function renderPlan(state, result) {
-    const direction = state.direction === "short" ? "short" : "long";
-    const unit = qtyUnit(state);
+    const side = state.direction === "short" ? "空" : "多";
+    const rows = result.rows.filter((row) => !row.invalidReason && row.included);
+    const phrase = fillCountPhrase(rows.length) + "档成交后";
     const lines = [
-      "【开仓计划】以额定损",
-      "合约：" + contractName(state),
-      "方向：" + (direction === "short" ? "空" : "多"),
-      "开仓方式：限价分档",
-      "数量步长：" + formatTrim(parseDecimal(resolveStep(state))),
-      "数量模式：" + (state.equalQty !== false ? "等量" : "手填"),
-      refPriceLine(state.refPrice, state.refTag),
-      "止损触发价：" + formatTrim(parseDecimal(state.stopLoss)),
-      "额定亏：" + formatTrim(parseDecimal(state.lossCap)) + " U",
+      "开仓计划：",
+      "标的 " + contractName(state),
+      "开仓方向：" + side,
       "杠杆：" + formatTrim(parseDecimal(state.leverage)) + "×",
-      "止盈价：无",
-      "盈亏比：无",
-      "合约面值：无",
-      "账户权益：无",
-      "风险比例：无",
-      "档数：" + String(result.rows.length),
+      "开仓方式：限价挂单",
     ];
-    result.rows.forEach((row, index) => {
-      lines.push(
-        "档" + (index + 1) + "：限价 " + row.priceText
-        + "，数量 " + row.qtyText + " " + unit
-        + "，保证金 " + row.marginText + " U"
-        + "，风险 " + row.riskText
-        + "，亏损 " + row.lossText + " U"
-        + "，名义 " + row.notionalText + " U"
-      );
+    rows.forEach((row, index) => {
+      lines.push("档位" + chineseOrdinal(index + 1) + "：" + row.priceText + "，数量 " + row.qtyText);
     });
     lines.push(
-      "总数量：" + result.totalQtyText + " " + unit,
-      "全部成交亏损：" + result.totalLossText + " U",
-      "均价：" + result.avgPriceText,
+      "统一挂止损：" + enteredPrice(state.stopLoss),
+      "统一挂止盈：无",
+      phrase + "预计亏损：" + copiedLoss(result.totalLossText) + " U",
+      phrase + "平均成本价：" + copiedAvg(result.avgPriceText),
       "总保证金：" + result.totalMarginFixed2 + " U",
-      "保证金精确：" + result.totalMarginText + " U",
-      "总亏损：" + result.totalLossText + " U",
-      "总名义：" + result.totalNotionalText + " U",
-      "分批成交：" + (direction === "short" ? "低→高" : "高→低")
+      "",
+      "开仓前请再次核对此计划如果全部成交是否符合该计划标准，误差不应超过3%"
     );
-    result.partials.forEach((item) => {
-      lines.push(item.order + " 价 " + item.priceText + " 累计亏 " + item.cumLossText + " 剩余 " + item.remaining);
-    });
-    if (result.rows.some((row) => row.offStep)) lines.push("注意：有档位数量不是步长的整数倍");
-    lines.push("手续费不计入额定亏损", "只计算 · 不下单");
     return lines.join("\n");
   }
 

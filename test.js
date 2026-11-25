@@ -238,8 +238,9 @@ assertEq(fs.existsSync(path.join(__dirname, ".nojekyll")), true, ".nojekyll exis
 const calcSrc = fs.readFileSync(path.join(__dirname, "calc.js"), "utf8");
 const readme = fs.readFileSync(path.join(__dirname, "README.md"), "utf8");
 assertEq(typeof calc.buildOpenPlan, "function", "plan builder is exported");
-assertEq(calcSrc.includes("【开仓计划】以额定损"), true, "builder owns the identifier line");
-assertEq(app.includes("【开仓计划】以额定损"), false, "template is not inlined in the page");
+assertEq(calcSrc.includes("开仓计划："), true, "builder owns the identifier line");
+assertEq(app.includes("开仓计划："), false, "template is not inlined in the page");
+assertEq(calcSrc.includes("【开仓计划】以额定损"), false, "old long identifier is gone");
 assertEq(app.includes("buildOpenPlan"), true, "page uses the plan builder");
 assertEq(html.includes('id="copy-plan"') && html.includes("复制开仓计划"), true, "copy button");
 assertEq(html.includes('id="copy-fallback"'), true, "manual copy fallback");
@@ -256,68 +257,97 @@ assertEq(/navigator\.share|分享到/i.test(app + html), false, "no share UI");
 assertEq(/mailto:|discord\.com\/api\/webhooks|hooks\.slack/i.test(app + html), false, "copy does not auto-send");
 assertEq(readme.includes("复制开仓计划"), true, "readme mentions copy");
 
+const REMINDER = "开仓前请再次核对此计划如果全部成交是否符合该计划标准，误差不应超过3%";
 const hypePlan = calc.buildOpenPlan(Object.assign({}, calc.loadSample("cap300"), { refPrice: "", refTag: "" }));
 const hypeText = [
-  "【开仓计划】以额定损",
-  "合约：HYPEUSDT",
-  "方向：多",
-  "开仓方式：限价分档",
-  "数量步长：0.01",
-  "数量模式：等量",
-  "参考最新价：未填",
-  "止损触发价：54.5",
-  "额定亏：300 U",
+  "开仓计划：",
+  "标的 HYPEUSDT",
+  "开仓方向：多",
   "杠杆：10×",
-  "止盈价：无",
-  "盈亏比：无",
-  "合约面值：无",
-  "账户权益：无",
-  "风险比例：无",
-  "档数：3",
-  "档1：限价 60.5，数量 27.27 HYPE，保证金 164.9835 U，风险 6，亏损 163.62 U，名义 1649.835 U",
-  "档2：限价 58，数量 27.27 HYPE，保证金 158.166 U，风险 3.5，亏损 95.445 U，名义 1581.66 U",
-  "档3：限价 56，数量 27.27 HYPE，保证金 152.712 U，风险 1.5，亏损 40.905 U，名义 1527.12 U",
-  "总数量：81.81 HYPE",
-  "全部成交亏损：299.97 U",
-  "均价：58.166667",
+  "开仓方式：限价挂单",
+  "档位一：60.5，数量 27.27",
+  "档位二：58，数量 27.27",
+  "档位三：56，数量 27.27",
+  "统一挂止损：54.5",
+  "统一挂止盈：无",
+  "三档成交后预计亏损：299.97 U",
+  "三档成交后平均成本价：58.17",
   "总保证金：475.86 U",
-  "保证金精确：475.8615 U",
-  "总亏损：299.97 U",
-  "总名义：4758.615 U",
-  "分批成交：高→低",
-  "1 价 60.5 累计亏 163.62 剩余 2",
-  "2 价 58 累计亏 259.065 剩余 1",
-  "3 价 56 累计亏 299.97 剩余 0",
-  "手续费不计入额定亏损",
-  "只计算 · 不下单",
+  "",
+  REMINDER,
 ].join("\n");
 assertEq(hypePlan.ok, true, "300U plan is complete");
 assertEq(hypePlan.text, hypeText, "300U plan text");
-assertEq(hypePlan.text.split("\n")[0], "【开仓计划】以额定损", "identifier is the first line");
-assertEq(hypePlan.text.split("\n").some((line) => line === ""), false, "plan has no blank lines");
+assertEq(hypePlan.text.split("\n")[0], "开仓计划：", "identifier is the first line");
+const hypeLines = hypePlan.text.split("\n");
+assertEq(hypeLines.filter((line) => line === "").length, 1, "one blank line before the reminder");
+assertEq(hypeLines[hypeLines.length - 2], "", "blank line sits above the reminder");
+assertEq(hypeLines[hypeLines.length - 1], REMINDER, "reminder is verbatim");
 assertEq(hypePlan.text.includes("市价"), false, "entries are limit tiers, not market");
-["止盈价：无", "盈亏比：无", "合约面值：无", "账户权益：无", "风险比例：无"].forEach((line) => {
-  assertEq(hypePlan.text.split("\n").filter((item) => item === line).length, 1, line);
+assertEq(hypePlan.text.includes("限价分档"), false, "open method is 限价挂单");
+assertEq(hypePlan.text.split("\n").filter((line) => line === "统一挂止盈：无").length, 1, "take-profit is 无");
+assertEq(/统一挂止盈：\d/.test(hypePlan.text), false, "take-profit is not a made-up price");
+["盈亏比", "合约面值", "账户权益", "风险比例", "手续费不计入", "只计算", "参考最新价", "数量步长", "数量模式", "分批成交", "保证金精确"].forEach((token) => {
+  assertEq(hypePlan.text.includes(token), false, "short plan omits " + token);
 });
-assertEq(/止盈价：\d/.test(hypePlan.text), false, "take-profit is not a made-up price");
 
 const hypeSnap = calc.buildOpenPlan(Object.assign({}, calc.loadSample("cap300"), { refPrice: "61.138", refTag: "快照" }));
 assertEq(hypeSnap.ok, true, "snapshot reference still completes");
-assertEq(hypeSnap.text, hypeText.replace("参考最新价：未填", "参考最新价：61.138（快照）"), "reference price does not change the plan");
+assertEq(hypeSnap.text, hypeText, "reference price is not copied");
+assertEq(hypeSnap.text.includes("参考"), false, "reference price is omitted");
 const hypeDash = calc.buildOpenPlan(Object.assign({}, calc.loadSample("cap300"), { refPrice: "—", refTag: "无" }));
-assertEq(hypeDash.text, hypeText, "placeholder reference is 未填");
+assertEq(hypeDash.text, hypeText, "placeholder reference is omitted");
 const hypeLive = calc.buildOpenPlan(Object.assign({}, calc.loadSample("cap300"), { refPrice: "61.2", refTag: "其他" }));
-assertEq(hypeLive.text.includes("参考最新价：61.2\n"), true, "unknown reference tag is omitted");
+assertEq(hypeLive.text, hypeText, "live reference is omitted");
+
+const ethText = [
+  "开仓计划：",
+  "标的 ETHUSDT",
+  "开仓方向：多",
+  "杠杆：20×",
+  "开仓方式：限价挂单",
+  "档位一：1660，数量 1.42",
+  "档位二：1620，数量 1.42",
+  "档位三：1570，数量 1.42",
+  "统一挂止损：1500",
+  "统一挂止盈：无",
+  "三档成交后预计亏损：497 U",
+  "三档成交后平均成本价：1616.67",
+  "总保证金：344.35 U",
+  "",
+  REMINDER,
+].join("\n");
+const ethPlan = calc.buildOpenPlan({
+  symbol: "ETH",
+  customSymbol: "",
+  customStep: "",
+  direction: "long",
+  stopLoss: "1500",
+  lossCap: "497",
+  leverage: "20",
+  equalQty: false,
+  tiers: [
+    { price: "1660", qty: "1.42" },
+    { price: "1620", qty: "1.42" },
+    { price: "1570", qty: "1.42" },
+  ],
+});
+assertEq(ethPlan.ok, true, "ETH sample plan is complete");
+assertEq(ethPlan.text, ethText, "ETH sample plan text");
+ethPlan.text.split("\n").filter((line) => line.startsWith("档位")).forEach((line) => {
+  assertEq(/保证金|风险|名义/.test(line), false, "tier line is price and qty only");
+});
 
 const manual = calc.applyQtyEdit(calc.loadSample("cap300"), 0, "10");
 const manualPlan = calc.buildOpenPlan(manual);
 assertEq(manualPlan.ok, true, "hand-edited qtys can still be copied");
-assertEq(manualPlan.text.includes("数量模式：手填"), true, "manual mode is labeled");
-assertEq(manualPlan.text.includes("档1：限价 60.5，数量 10.00 HYPE，保证金 60.5 U，风险 6，亏损 60 U，名义 605 U"), true, "manual first tier");
-assertEq(manualPlan.text.includes("总数量：64.54 HYPE"), true, "manual total qty");
-assertEq(manualPlan.text.includes("全部成交亏损：196.35 U"), true, "manual full-fill loss");
+assertEq(manualPlan.text.includes("数量模式"), false, "quantity mode is omitted");
+assertEq(manualPlan.text.includes("档位一：60.5，数量 10.00"), true, "manual first tier");
+assertEq(manualPlan.text.includes("三档成交后预计亏损：196.35 U"), true, "manual full-fill loss");
+assertEq(manualPlan.text.includes("三档成交后平均成本价：57.54"), true, "manual average is two decimals");
 assertEq(manualPlan.text.includes("总保证金：371.38 U"), true, "manual margin 2dp");
-assertEq(manualPlan.text.includes("保证金精确：371.378 U"), true, "manual exact margin");
+assertEq(manualPlan.text.includes("保证金精确"), false, "manual exact margin is omitted");
+assertEq(/，保证金 |，风险 |，名义 /.test(manualPlan.text), false, "manual tiers omit margin risk and notional");
 
 const custom = {
   symbol: "CUSTOM",
@@ -332,14 +362,17 @@ const custom = {
 };
 const customPlan = calc.buildOpenPlan(custom);
 assertEq(customPlan.ok, true, "custom symbol plan");
-assertEq(customPlan.text.includes("合约：sol\n"), true, "custom name is copied as entered");
+assertEq(customPlan.text.includes("标的 sol\n"), true, "custom name is copied as entered");
 assertEq(customPlan.text.includes("USDT"), false, "custom name does not gain a USDT suffix");
-assertEq(customPlan.text.includes("方向：空"), true, "custom short direction");
-assertEq(customPlan.text.includes("开仓方式：限价分档"), true, "custom plan is limit tiers");
-assertEq(customPlan.text.includes("总数量：2 sol"), true, "custom qty unit is the entered name");
-assertEq(customPlan.text.includes("分批成交：低→高"), true, "short fills low to high");
-assertEq(customPlan.text.includes("1 价 80 累计亏 20 剩余 1"), true, "custom partial row");
-assertEq(customPlan.text.includes("止盈价：无"), true, "custom plan has no take-profit");
+assertEq(customPlan.text.includes("开仓方向：空"), true, "custom short direction");
+assertEq(customPlan.text.includes("开仓方式：限价挂单"), true, "custom plan is a limit order");
+assertEq(customPlan.text.includes("统一挂止盈：无"), true, "custom plan has no take-profit");
+assertEq(customPlan.text.includes("档位二："), true, "second tier label uses 二");
+assertEq(customPlan.text.includes("两档成交后预计亏损：30 U"), true, "2-tier loss line says 两档成交后");
+assertEq(customPlan.text.includes("两档成交后平均成本价：85.00"), true, "2-tier average line says 两档成交后");
+assertEq(customPlan.text.includes("二档"), false, "2-tier count is not 二档");
+assertEq(customPlan.text.includes("三档"), false, "2-tier plan does not say 三档");
+assertEq(customPlan.text.includes("分批成交"), false, "partial-fill table is omitted");
 
 const oneTier = {
   symbol: "BTC",
@@ -354,19 +387,22 @@ const oneTier = {
 };
 const onePlan = calc.buildOpenPlan(oneTier);
 assertEq(onePlan.ok, true, "single tier plan");
-assertEq(onePlan.text.includes("合约：BTCUSDT"), true, "preset uses the contract product");
-assertEq(onePlan.text.includes("开仓方式：限价分档"), true, "single tier is still a limit entry");
-assertEq(onePlan.text.includes("档1：限价 103，数量 0.3333 BTC"), true, "single limit price and qty");
+assertEq(onePlan.text.includes("标的 BTCUSDT"), true, "preset uses the contract product");
+assertEq(onePlan.text.includes("开仓方式：限价挂单"), true, "single tier is still a limit entry");
+assertEq(onePlan.text.includes("档位一：103，数量 0.3333"), true, "single limit price and qty");
 assertEq(onePlan.text.includes("市价"), false, "single tier is not a market order");
+assertEq(onePlan.text.includes("一档成交后预计亏损：0.9999 U"), true, "single tier keeps the displayed loss");
+assertEq(onePlan.text.includes("一档成交后平均成本价：103.00"), true, "single tier average is two decimals");
 assertEq(onePlan.text.includes("总保证金：6.87 U"), true, "single tier margin 2dp");
-assertEq(onePlan.text.includes("保证金精确：6.86598 U"), true, "single tier exact margin");
-assertEq(onePlan.text.includes("1 价 103 累计亏 0.9999 剩余 0"), true, "single tier partial");
+assertEq(onePlan.text.includes("保证金精确"), false, "single tier exact margin is omitted");
+assertEq(onePlan.text.includes("三档成交后"), false, "single tier does not say 三档");
 
 const off = calc.applyQtyEdit(calc.loadSample("cap300"), 0, "10.001");
 const offPlan = calc.buildOpenPlan(off);
 assertEq(offPlan.ok, true, "off-step qty is still an executable plan");
-assertEq(offPlan.text.includes("数量 10.001 HYPE"), true, "off-step qty is kept");
-assertEq(offPlan.text.includes("注意：有档位数量不是步长的整数倍"), true, "off-step note");
+assertEq(offPlan.text.includes("数量 10.001"), true, "off-step qty is kept");
+assertEq(offPlan.text.includes("三档成交后预计亏损：196.356 U"), true, "off-step loss keeps displayed decimals");
+assertEq(offPlan.text.includes("注意：有档位数量不是步长的整数倍"), false, "off-step note is omitted");
 
 function blocked(extra, msg) {
   const plan = calc.buildOpenPlan(extra);
