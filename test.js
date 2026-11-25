@@ -243,6 +243,11 @@ assertEq(app.includes("【开仓计划】以额定损"), false, "template is not
 assertEq(app.includes("buildOpenPlan"), true, "page uses the plan builder");
 assertEq(html.includes('id="copy-plan"') && html.includes("复制开仓计划"), true, "copy button");
 assertEq(html.includes('id="copy-fallback"'), true, "manual copy fallback");
+assertEq(html.includes('class="plan-head"') && html.indexOf('class="plan-head"') < html.indexOf('id="copy-plan"') && html.indexOf('id="copy-fallback"') < html.indexOf('class="col outputs"'), true, "headline and copy fallback share one grid item");
+assertEq(css.includes("grid-area: headline") && css.includes('"inputs headline"') && css.includes('"inputs outputs"'), true, "desktop keeps the total above outputs");
+const narrowLayout = css.slice(css.indexOf("@media (max-width: 820px)"));
+assertEq(narrowLayout.indexOf('"headline"') !== -1 && narrowLayout.indexOf('"headline"') < narrowLayout.indexOf('"inputs"') && narrowLayout.indexOf('"inputs"') < narrowLayout.indexOf('"outputs"'), true, "phone stacks the total before inputs");
+assertEq(/#copy-plan\.restore\s*\{[\s\S]*?border-color:\s*rgba\(242,\s*246,\s*255/.test(css), true, "copy button border is lighter than the card");
 assertEq(app.includes("已复制"), true, "copied feedback");
 assertEq(app.includes("if (!built.ok)"), true, "page refuses an incomplete plan");
 assertEq(app.indexOf("if (!built.ok)") < app.indexOf("writeText"), true, "clipboard write follows the completeness check");
